@@ -153,23 +153,23 @@ describe("writeFileAtomicSync", () => {
 		assert.equal(fs.readFileSync(path.join(path.dirname(file), kept[0]!), "utf-8"), "new");
 	});
 
-	it("Windows: read-only files fail at once, like in-place writes", onWindows, () => {
+	it("Windows: read-only files fail at once, like in-place writes", onWindows, (t) => {
 		const file = target("record.json", "old");
 		fs.chmodSync(file, 0o444);
-		const started = Date.now();
+		const rename = t.mock.method(fs, "renameSync");
 		assert.throws(() => writeFileAtomicSync(file, "new"), { code: "EPERM" });
-		assert.ok(Date.now() - started < 50, "no waiting on read-only files");
+		assert.equal(rename.mock.callCount(), 1, "no retries on read-only files");
 		fs.chmodSync(file, 0o666);
 		assert.equal(fs.readFileSync(file, "utf-8"), "old");
 		assert.deepEqual(temps(file), []);
 	});
 
-	it("folders in the way fail at once", () => {
+	it("folders in the way fail at once", (t) => {
 		const file = target("record.json");
 		fs.mkdirSync(file);
-		const started = Date.now();
+		const rename = t.mock.method(fs, "renameSync");
 		assert.throws(() => writeFileAtomicSync(file, "new"));
-		assert.ok(Date.now() - started < 50, "no waiting on folders");
+		assert.equal(rename.mock.callCount(), 1, "no retries on folders");
 		assert.deepEqual(temps(file), []);
 	});
 
