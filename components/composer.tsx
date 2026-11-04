@@ -5,6 +5,7 @@ import { ArrowRightIcon, CornerDownLeftIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PathInput } from "@/components/path-input";
 import { AttachFilesButton } from "@/components/attach-files-button";
+import { AttachmentDraftView, type AttachmentDraft } from "@/components/attachment-draft";
 
 /**
  * The chat composer — content row ONLY (the persistent rounded shell lives in
@@ -58,6 +59,7 @@ export function ChatSessionComposer({
 	placeholder,
 	nextProblem,
 	onNext,
+	attachments,
 }: {
 	busy: boolean;
 	value: string;
@@ -73,10 +75,11 @@ export function ChatSessionComposer({
 	placeholder?: string;
 	nextProblem?: boolean;
 	onNext?: () => void;
+	attachments?: AttachmentDraft;
 }) {
 	const [draft, setDraft] = useState(value);
 	useLayoutEffect(() => { setDraft(value); }, [revision, value]);
-	const canSend = sendAllowed && (draft.trim().length > 0 || dictationActive);
+	const canSend = sendAllowed && !attachments?.pending && (draft.trim().length > 0 || dictationActive || !!attachments?.ready);
 	const applyDraft = useCallback((next: string) => {
 		setDraft(next);
 		onChange(next);
@@ -96,6 +99,7 @@ export function ChatSessionComposer({
 			placeholder={placeholder}
 			nextProblem={nextProblem}
 			onNext={onNext}
+			attachments={attachments}
 		/>
 	);
 }
@@ -113,6 +117,7 @@ export function Composer({
 	placeholder = "Ask, answer, or steer the lesson…",
 	nextProblem = false,
 	onNext,
+	attachments,
 }: {
 	busy: boolean;
 	value: string;
@@ -138,6 +143,7 @@ export function Composer({
 	/** The signal's dispatcher (send({type:"next"})) — the chip and the
 	 *  empty-Enter share it. */
 	onNext?: () => void;
+	attachments?: AttachmentDraft;
 }) {
 	const act = () => {
 		const action = enterAction({ busy, canSend, nextProblem });
@@ -148,6 +154,8 @@ export function Composer({
 	const ownInputRef = useRef<HTMLDivElement>(null);
 	const editorRef = inputRef ?? ownInputRef;
 	return (
+		<>
+		{attachments && <AttachmentDraftView draft={attachments} />}
 		<form
 			data-testid="composer"
 			className="flex items-end gap-1.5 p-1.5"
@@ -177,6 +185,7 @@ export function Composer({
 					// across every input in the app (thinking field, answers).
 					if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) {
 						e.preventDefault();
+						if (attachments?.pending) return;
 						act();
 					}
 				}}
@@ -184,7 +193,7 @@ export function Composer({
 				autoFocus={autoFocus}
 				className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
 			/>
-			<AttachFilesButton editorRef={editorRef} />
+			<AttachFilesButton editorRef={editorRef} onFiles={attachments?.addFiles} />
 			{/* The button follows the text (owner report 2026-10-03): while
 				 a turn runs WITH text typed it stays the SEND affordance
 				 (click = steer — steering must be clickable, not Enter-only);
@@ -225,5 +234,6 @@ export function Composer({
 					</button>
 				)}
 		</form>
+		</>
 	);
 }

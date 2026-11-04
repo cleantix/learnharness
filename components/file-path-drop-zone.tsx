@@ -9,7 +9,8 @@ import { INSERT_FILE_PATHS_EVENT } from "@/components/path-input";
 export const BROWSER_NOTICE = "Local file paths can only be attached in the desktop app. You can paste a full path instead.";
 
 /** The content area only: the sidebar is deliberately outside this zone.
- * Existing files stay where they are; only quoted path strings enter drafts. */
+ * Files go to the active attachment composer; desktop folder references keep
+ * the existing path insertion behavior. */
 export function FilePathDropZone({ children, className }: { children: React.ReactNode; className?: string }) {
 	const root = useRef<HTMLElement>(null);
 	const depth = useRef(0);
@@ -59,6 +60,14 @@ export function FilePathDropZone({ children, className }: { children: React.Reac
 				event.preventDefault();
 				event.stopPropagation();
 				clearDrag();
+				const dropped = Array.from(event.dataTransfer.files);
+				const entriesForDrop = Array.from(event.dataTransfer.items).filter((item) => item.kind === "file");
+				const containsDirectory = entriesForDrop.some((item) => { try { return item.webkitGetAsEntry?.()?.isDirectory === true; } catch { return false; } });
+				if (!containsDirectory && document.querySelector('[data-testid="composer"], [data-testid="home-attachment-composer"]')) {
+					window.dispatchEvent(new CustomEvent("lh:attach-files", { detail: dropped }));
+					setNotice("");
+					return;
+				}
 				const resolve = window.lh?.getPathForFile;
 				if (!resolve) { setNotice(BROWSER_NOTICE); return; }
 				// Inspect only the dropped item's type, never traverse its entries.
@@ -96,7 +105,7 @@ export function FilePathDropZone({ children, className }: { children: React.Reac
 				<div data-testid="file-path-drop-indicator" className="pointer-events-none absolute inset-2 z-50 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-background/85 p-6 text-center backdrop-blur-sm">
 					<div className="flex max-w-md flex-col items-center gap-3">
 						<FileSymlinkIcon className="size-8 text-primary" aria-hidden />
-						<span className="font-ui text-sm">{window.lh?.getPathForFile ? "Drop to attach file paths" : BROWSER_NOTICE}</span>
+						<span className="font-ui text-sm">{document.querySelector('[data-testid="composer"], [data-testid="home-attachment-composer"]') ? "Drop files to attach" : window.lh?.getPathForFile ? "Drop to attach file paths" : BROWSER_NOTICE}</span>
 					</div>
 				</div>
 			)}

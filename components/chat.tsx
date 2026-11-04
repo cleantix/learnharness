@@ -25,6 +25,9 @@ import { MalformedQuestion } from "@/components/malformed-question";
 import { artifactRenderers } from "@/components/artifacts";
 import { SubagentSteerCard } from "@/components/artifacts/steer-card";
 import { ChatSessionComposer } from "@/components/composer";
+import { useAttachmentDraft } from "@/components/attachment-draft";
+import { MessageAttachments } from "@/components/message-attachments";
+import type { Attachment } from "@/src/core";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { dockStateKey } from "@/components/dock-state-key";
@@ -246,6 +249,7 @@ export function Chat({
 	 *  only decides whether the pill rides the composer. */
 	initialConfigured?: boolean;
 }) {
+	const attachments = useAttachmentDraft();
 	// Reattach plumbing (background-turn runner wave): the hook holds the
 	// settled terminal's callback — a stable ref assigned below, once
 	// syncFromServer exists (refs, not closures: no stale capture).
@@ -583,6 +587,7 @@ export function Chat({
 	 *  opens recovery with no replay. */
 	const draftRef = useRef<string | null>(null);
 	const openingDraftRef = useRef<string | null>(null);
+	const openingAttachmentIdsRef = useRef<string[]>([]);
 	const [openingError, setOpeningError] = useState(false);
 	const openingMountedRef = useRef(false);
 	useEffect(() => {
@@ -590,11 +595,12 @@ export function Chat({
 		return () => { openingMountedRef.current = false; };
 	}, []);
 
-	const deliverOpeningPrompt = useCallback((prompt: string) => {
+	const deliverOpeningPrompt = useCallback((prompt: string, attachmentIds: string[] = openingAttachmentIdsRef.current) => {
 		openingDraftRef.current = prompt;
+		openingAttachmentIdsRef.current = attachmentIds;
 		// Persist uncertainty BEFORE the POST: another mount must restore,
 		// not race the still-arriving request. No storage means no auto-send.
-		if (!stashOpeningPrompt(chatId, prompt, true)) {
+		if (!stashOpeningPrompt(chatId, prompt, true, attachmentIds)) {
 			applyText(prompt);
 			setOpeningError(true);
 			return;
@@ -602,16 +608,19 @@ export function Chat({
 		setOpeningError(false);
 		draftRef.current = prompt; // The existing 503 flow must restore it too.
 		applyText("");
-		void send({ type: "text", text: prompt }, () => {
+		void send({ type: "text", text: prompt, ...(attachmentIds.length ? { attachmentIds } : {}) }, () => {
 			clearOpeningPrompt(chatId);
 			openingDraftRef.current = null;
+			openingAttachmentIdsRef.current = [];
+			attachments.removeSent(attachmentIds);
 			if (draftRef.current === prompt) draftRef.current = null;
 		}).then(accepted => {
-			if (!accepted && openingMountedRef.current && openingDraftRef.current === prompt && !textRef.current) {
-				applyText(prompt);
+			if (!accepted && openingMountedRef.current && openingDraftRef.current === prompt) {
+				if (!textRef.current) applyText(prompt);
+				void attachments.restore(attachmentIds, chatId);
 			}
 		});
-	}, [chatId, send, applyText]);
+	}, [chatId, send, applyText, attachments.removeSent, attachments.restore]);
 
 	const sentInitial = useRef(false);
 	useEffect(() => {
@@ -619,16 +628,19 @@ export function Chat({
 		sentInitial.current = true;
 		const entry = readOpeningPromptEntry(chatId);
 		const prompt = initialPrompt || entry?.text; // Legacy links still work.
-		if (!initialPromptOwed(initialMessages, prompt)) {
+		const openingIds = entry?.attachmentIds ?? [];
+		openingAttachmentIdsRef.current = openingIds;
+		if (!initialPromptOwed(initialMessages, prompt || (openingIds.length ? "attachment" : undefined))) {
 			if (initialMessages.some(m => m.role === "user" || m.role === "assistant")) clearOpeningPrompt(chatId);
 			return;
 		}
-		openingDraftRef.current = prompt!;
+		openingDraftRef.current = prompt ?? "";
 		if (entry?.attempted || initiallyInFlight) {
-			applyText(prompt!); // Interrupted start: the learner explicitly resends.
+			applyText(prompt ?? ""); // Interrupted start: the learner explicitly resends.
+			void attachments.restore(openingIds, chatId);
 			return;
 		}
-		deliverOpeningPrompt(prompt!);
+		deliverOpeningPrompt(prompt ?? "", openingIds);
 	}, [chatId, initialPrompt, initialMessages, initiallyInFlight, deliverOpeningPrompt, applyText]);
 
 	useEffect(() => {
@@ -1214,7 +1226,7 @@ export function Chat({
 	const doSend = () => {
 		if (busy || pending || compacting) return;
 		const t = textRef.current.trim();
-		if (!t) return;
+		if ((!t && !attachments.ready && !openingAttachmentIdsRef.current.length) || attachments.pending) return;
 		if (zeroKeys) {
 			setSetupOpen(true);
 			return;
@@ -1224,12 +1236,13 @@ export function Chat({
 			return; // No optimistic send and no change to the learner's draft.
 		}
 		if (openingDraftRef.current !== null) {
-			deliverOpeningPrompt(t);
+			deliverOpeningPrompt(t, attachments.ids);
 			return;
 		}
 		draftRef.current = t; // the refusal flow's preserve-and-replay seam
 		applyText("");
-		void send({ type: "text", text: t });
+		const sentIds = attachments.ids;
+		void send({ type: "text", text: t, ...(sentIds.length ? { attachmentIds: sentIds } : {}) }, () => attachments.removeSent(sentIds)).then((accepted) => { if (!accepted && !textRef.current) applyText(t); });
 	};
 
 	/* STEER VS SEND (owner arc 2026-10-03): a send while a turn runs steers
@@ -1244,10 +1257,11 @@ export function Chat({
 	const doSteerOrSend = () => {
 		if (pending || compacting) return;
 		const t = textRef.current.trim();
-		if (!t) return;
+		if ((!t && !attachments.ready && !openingAttachmentIdsRef.current.length) || attachments.pending) return;
 		if (busy) {
 			applyText("");
-			void steer(t);
+			const sentIds = attachments.ids;
+			void steer(t, sentIds).then((accepted) => { if (accepted) attachments.removeSent(sentIds); else if (!textRef.current) applyText(t); });
 			return;
 		}
 		doSend();
@@ -1520,6 +1534,7 @@ export function Chat({
 												<div className="lh-prose whitespace-pre-wrap text-foreground">
 													<PathText text={m.parts.filter((p) => p.type === "text").map((p) => p.text).join("\n")} />
 												</div>
+												{m.parts.filter((p) => p.type === "data-attachments").map((p, index) => <MessageAttachments key={index} chatId={chatId} attachments={p.data as Attachment[]} />)}
 											</div>
 									) : (
 									<Message from="assistant" className="max-w-full">
@@ -1735,6 +1750,7 @@ export function Chat({
 					}
 					composer={
 						<ChatSessionComposer
+							attachments={attachments}
 							// Stop aborts ANY in-flight turn (stream-reattach wave): the
 							// square renders while a reattached/wake turn runs too — the
 							// abort channel kills it server-side; stop() alone would

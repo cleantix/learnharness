@@ -174,6 +174,8 @@ export const PathInput = React.forwardRef<HTMLDivElement, PathInputProps>(functi
 		function paste(event: ClipboardEvent) {
 			if (event.defaultPrevented) return;
 			event.preventDefault();
+			const files = Array.from(event.clipboardData?.files ?? []);
+			if (files.length && root.closest('[data-testid="composer"], [data-testid="home-attachment-composer"]')) window.dispatchEvent(new CustomEvent("lh:attach-files", { detail: files }));
 			const text = event.clipboardData?.getData("text/plain") ?? "";
 			// Image/file/HTML-only clipboard contents are not text replacement.
 			if (text === "") return;

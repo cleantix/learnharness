@@ -8,15 +8,16 @@ export const OPENING_PROMPT_FAILURE = "Couldn’t open the session. Your message
 
 export interface OpeningPrompt {
 	text: string;
+	attachmentIds?: string[];
 	/** Written BEFORE sending. A later mount restores a draft, never reposts. */
 	attempted: boolean;
 }
 
 const keyFor = (id: string) => `lh.openingPrompt.${id}`;
 
-export function stashOpeningPrompt(id: string, text: string, attempted = false): boolean {
+export function stashOpeningPrompt(id: string, text: string, attempted = false, attachmentIds?: string[]): boolean {
 	try {
-		const value = JSON.stringify({ text, attempted } satisfies OpeningPrompt);
+		const value = JSON.stringify({ text, attempted, ...(attachmentIds?.length ? { attachmentIds } : {}) } satisfies OpeningPrompt);
 		// Catch both the storage getter and its methods (quota/security errors).
 		const storage = globalThis.sessionStorage;
 		storage.setItem(keyFor(id), value);
@@ -33,8 +34,8 @@ export function readOpeningPromptEntry(id: string): OpeningPrompt | undefined {
 		try {
 			const entry: unknown = JSON.parse(value);
 			if (entry && typeof entry === "object" && "text" in entry && typeof entry.text === "string" &&
-				entry.text.length > 0 && "attempted" in entry && typeof entry.attempted === "boolean") {
-				return { text: entry.text, attempted: entry.attempted };
+				"attempted" in entry && typeof entry.attempted === "boolean" && (entry.text.length > 0 || ("attachmentIds" in entry && Array.isArray(entry.attachmentIds) && entry.attachmentIds.length > 0))) {
+				return { text: entry.text, attempted: entry.attempted, ...("attachmentIds" in entry && Array.isArray(entry.attachmentIds) && entry.attachmentIds.every(id => typeof id === "string") ? { attachmentIds: entry.attachmentIds as string[] } : {}) };
 			}
 		} catch { /* Old raw-text stashes have no proof that sending never began. */ }
 		return { text: value, attempted: true };

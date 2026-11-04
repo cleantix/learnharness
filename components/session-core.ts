@@ -83,6 +83,13 @@ async function turnInFlight(model: SessionModel): Promise<boolean | null> {
 
 const STREAM_DROPPED = "The connection dropped before the turn completed.";
 
+function attachmentErrorMessage(body: string): string {
+	try {
+		const parsed = JSON.parse(body) as { error?: unknown };
+		return typeof parsed?.error === "string" ? parsed.error : body;
+	} catch { return body; }
+}
+
 /** Mark transport failures without confusing JSON/application bugs with drops. */
 class StreamReadError extends Error {
 	constructor(cause: unknown) {
@@ -739,6 +746,7 @@ export class SessionModel {
 				// flow parses them. Retry's 400s are ordinary user-facing
 				// guidance, so show their error text without JSON syntax.
 				let message = (await res.text()) || `The send failed (${res.status}).`;
+				if (input.type === "text" && input.attachmentIds?.length) message = attachmentErrorMessage(message);
 				if ((input.type === "retry" || input.type === "retry-question") && res.status === 400) {
 					try {
 						const refusal = JSON.parse(message) as { error?: unknown } | null;
@@ -766,10 +774,9 @@ export class SessionModel {
 			return true;
 		} catch (err) {
 			const failedOpening = input.type === "text" && onAccepted !== undefined && !accepted;
-			if (failedOpening) {
-				// The POST outlives stop(), including StrictMode's cleanup. Remove
-				// only its own failed optimistic bubble even if a newer request
-				// won; never touch canonical messages or another attempt's tail.
+			if (failedOpening || (input.type === "text" && !!input.attachmentIds?.length && !accepted)) {
+				// Remove only this refused opening or attachment message, even if a
+				// newer request won; never touch canonical or newer messages.
 				const ids = new Set(optimistic.map(m => m.id));
 				this.mutate(() => { this.tail = this.tail.filter(m => !ids.has(m.id)); });
 			}
@@ -807,11 +814,11 @@ export class SessionModel {
 	 *  settled mid-send (the race): fall back to the plain text send —
 	 *  the entry is dropped and send() pushes its own optimistic card.
 	 */
-	async steer(text: string): Promise<void> {
+	async steer(text: string, attachmentIds?: string[]): Promise<boolean> {
 		const t = text.trim();
-		if (!t) return;
+		if (!t && !attachmentIds?.length) return false;
 		const id = `steer_${localId()}`;
-		this.steerQueueValue = [...this.steerQueueValue, { id, text: t }];
+		this.steerQueueValue = [...this.steerQueueValue, { id, text: t || `${attachmentIds?.length ?? 0} attachment(s)` }];
 		this.onChange?.();
 		const dropSteer = () => {
 			this.steerQueueValue = this.steerQueueValue.filter((s) => s.id !== id);
@@ -821,20 +828,21 @@ export class SessionModel {
 			const res = await this.fetch(`/api/chats/${this.chatId}/steer`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ input: { type: "steer", id, text: t } }),
+				body: JSON.stringify({ input: { type: "steer", id, text: t, ...(attachmentIds?.length ? { attachmentIds } : {}) } }),
 			});
-			if (res.ok) return; // parked or delivered — the stream lands the card
+			if (res.ok) return true; // parked or delivered — the stream lands the card
 			if (res.status === 409) {
 				dropSteer();
-				await this.send({ type: "text", text: t }); // the settle race: plain send
-				return;
+				return await this.send({ type: "text", text: t, attachmentIds }); // the settle race: plain send
 			}
 			dropSteer();
-			this.setError((await res.text()) || `The steer failed (${res.status}).`);
+			const message = (await res.text()) || `The steer failed (${res.status}).`;
+			this.setError(attachmentIds?.length ? attachmentErrorMessage(message) : message);
 		} catch (err) {
 			dropSteer();
 			this.setError((err as Error).message);
 		}
+		return false;
 	}
 
 	/** The answer path (the dock): the answer IS the question call's tool
