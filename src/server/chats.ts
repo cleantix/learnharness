@@ -8,6 +8,7 @@ import { stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
 import { clearTurnFailure } from "./turn-runs.ts";
 import { discardChatDeliveries } from "./jobs.ts";
+import { deleteChatAttachments } from "./attachments.ts";
 
 /**
  * Server-side chat entries for the transport layer (app/api/chats*,
@@ -149,6 +150,8 @@ function finishChatDeletion(chatId: string, mode: ChatDeleteMode): Extract<ChatD
 
 function finishChatRecordDeletion(chatId: string): number {
 	const jobsRemoved = stores.jobStore.deleteJobsForChat(chatId);
+	// Keep the chat record available for a retry if removing its files fails.
+	deleteChatAttachments(chatId);
 	if (stores.chatStore.deleteChat(chatId)) {
 		discardChatDeliveries(chatId);
 		clearTurnFailure(chatId);
