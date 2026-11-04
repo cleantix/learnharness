@@ -64,6 +64,9 @@ import {
 } from "../core/input-events.ts";
 import { steerDelivered } from "../core/contracts.ts";
 import type {CallUsage} from "../core/contracts.ts";
+import { attachmentBytes, attachmentFor, attachmentPath, claimAttachments, releaseAttachmentClaims, stagedAttachmentFor } from "./attachments.ts";
+import { createAttachmentTool } from "../agent/tools/read-attachment.ts";
+import { attachmentContext } from "./attachment-context.ts";
 
 /**
  * One chat turn over the server-owned native record. Framework-free (plain
@@ -88,6 +91,14 @@ import type {CallUsage} from "../core/contracts.ts";
  * already in progress when the opt-in is switched off. */
 function connectionBackgroundAllowed(provider: string): boolean {
 	return subscriptionBackgroundAllowed(provider) && (provider !== CLAUDE_CODE_PROVIDER || providerKeyPresent(provider));
+}
+
+export function chatSupportsImages(chatId: string): boolean {
+	const record = stores.chatStore.getChat(chatId);
+	if (!record) return false;
+	const spec = resolveConversationSpec(record.settings, effectiveSettings().models.strong);
+	if (!spec) return false;
+	try { return piEngineForSpec(spec).model.input.includes("image"); } catch { return false; }
 }
 
 function settlementErrorText(error: unknown): string {
@@ -327,10 +338,17 @@ export async function handleChatInput(
 			input.type === "steers"
 				? input.steers.filter((s) => !steerDelivered(record.messages, s.id))
 				: inputAppends(record, input);
+		if (input.type === "text" && input.attachmentIds?.length) {
+			const attachments = input.attachmentIds.map((id) => attachmentFor(id));
+			if (attachments.some((a) => a?.kind === "image") && !conversationEngine.model.input.includes("image")) {
+				return Response.json({ error: "The selected model does not support images. Choose a vision model." }, { status: 400 });
+			}
+		}
 	} catch (err) {
 		if (err instanceof ChatInputError) {
 			return Response.json({ error: err.message }, { status: 400 });
 		}
+		if (input.type === "text" && input.attachmentIds?.length) return Response.json({ error: err instanceof Error ? err.message : "Attachment unavailable" }, { status: 400 });
 		throw err;
 	}
 
@@ -362,6 +380,17 @@ export async function handleChatInput(
 		console.info(`[chat ${chatId}] turn already in flight — request rejected`);
 		return Response.json({ error: "A turn is already running for this session" }, { status: 409 });
 	}
+	const newlyClaimed = input.type === "text" ? (input.attachmentIds ?? []).filter((id) => !!stagedAttachmentFor(id)) : [];
+	if (input.type === "text" && input.attachmentIds?.length) {
+		try {
+			const attachments = claimAttachments(input.attachmentIds, chatId);
+			const user = appends.findLast((message) => message.role === "user");
+			if (user) user.attachments = attachments;
+		} catch (err) {
+			endTurn(chatId);
+			return Response.json({ error: err instanceof Error ? err.message : "Attachment unavailable" }, { status: 400 });
+		}
+	}
 
 	// Write-ahead persistence: the input's native appends go on disk BEFORE
 	// the turn starts - the learner's answer is durable the instant the
@@ -380,6 +409,7 @@ export async function handleChatInput(
 	try {
 		if (!stagedAutomatic) stores.chatStore.saveMessages(chatId, merged);
 	} catch (err) {
+		try { releaseAttachmentClaims(newlyClaimed, chatId); } catch (releaseError) { console.error(`[chat ${chatId}] attachment release failed:`, releaseError); }
 		console.error(`[chat ${chatId}] write-ahead persist failed:`, err);
 		endTurn(chatId);
 		return new Response("Your input could not be saved. Please try again.", { status: 500 });
@@ -451,6 +481,13 @@ export async function handleChatInput(
 		callPurpose,
 		requestCycle,
 		messages: asAgentMessages(agentMessages),
+		attachmentTool: createAttachmentTool((id) => {
+			const attachment = attachmentFor(id, chatId);
+			const file = attachmentBytes(id, chatId);
+			const filePath = attachmentPath(id, chatId);
+			return attachment && file && filePath ? { attachment, bytes: file.bytes, path: filePath } : null;
+		}, { supportsImages: engine.model.input.includes("image"), resizeOptions: engine.model.inputLimits?.images?.resize }),
+		convertAttachments: (messages) => attachmentContext(messages, chatId, engine.model),
 		onUsage: collectUsage,
 		toolToggles: effective.agent.tools,
 		// Debug (owner, 2026-10-04): teacher/prober raw provider events under

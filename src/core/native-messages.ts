@@ -46,6 +46,7 @@ import {
 import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
 import { parseQuestionInput } from "./tool-parts.ts";
+import type { Attachment } from "./attachments.ts";
 
 /** The hard-invariant wording for an aborted turn's unanswered calls —
  *  carried over verbatim from the pre-native era so the model's view
@@ -97,6 +98,7 @@ export type LhMessage = (UserMessage | AssistantMessage | ToolResultMessage | Lh
 	/** CLI-reported effective context budget, not a catalog model maximum.
 	 * App-only metadata: never transmitted as provider/model message content. */
 	cliContextWindow?: number;
+	attachments?: Attachment[];
 };
 
 /** Latest response only: never borrow an older process/model's window when
@@ -639,7 +641,7 @@ export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
 			continue;
 		}
 		// Strip app-only id/CLI context metadata: the wire carries the native shape only.
-		const { id: _id, cliContextWindow: _cliContextWindow, ...native } = m as LhMessage;
+		const { id: _id, cliContextWindow: _cliContextWindow, attachments: _attachments, ...native } = m as LhMessage;
 		out.push(native as Message);
 		// Repair unanswered calls from completed generations, not calls in
 		// failed generations. Pi filters error/aborted assistants itself;

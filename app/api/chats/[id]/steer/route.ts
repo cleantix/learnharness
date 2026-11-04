@@ -11,7 +11,7 @@
 // registry copy survives a question termination or abort and rides the
 // chat's next run.
 import { ChatInputError, newUserSteer, parseUserSteerInput } from "@/src/core";
-import { getChat, steerLiveChat } from "@/src/server";
+import { attachmentFor, chatSupportsImages, claimAttachments, getChat, releaseAttachmentClaims, stagedAttachmentFor, steerLiveChat } from "@/src/server";
 
 export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
 	const { id } = await ctx.params;
@@ -25,7 +25,16 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
 		throw err;
 	}
 	const message = newUserSteer(input.text, input.id);
+	const newlyClaimed = (input.attachmentIds ?? []).filter((attachmentId) => !!stagedAttachmentFor(attachmentId));
+	if (input.attachmentIds?.length) {
+		if (input.attachmentIds.some((attachmentId) => attachmentFor(attachmentId)?.kind === "image") && !chatSupportsImages(id)) {
+			return Response.json({ error: "The selected model does not support images. Choose a vision model." }, { status: 400 });
+		}
+		try { message.attachments = claimAttachments(input.attachmentIds, id); }
+		catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Attachment unavailable" }, { status: 400 }); }
+	}
 	if (!steerLiveChat(id, message)) {
+		releaseAttachmentClaims(newlyClaimed, id);
 		return Response.json({ error: "no live turn to steer" }, { status: 409 });
 	}
 	return Response.json({ ok: true });

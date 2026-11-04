@@ -100,6 +100,8 @@ export type StepUsageCollector = (usage: Usage) => void;
 
 /** Per-request construction options (the handler wires all of these). */
 export interface AgentBuildOptions {
+	attachmentTool?: AgentTool<any>;
+	convertAttachments?: (messages: AgentMessage[]) => Promise<import("@earendil-works/pi-ai").Message[]>;
 	/** Model + stream function — tests inject a scripted faux engine. */
 	engine?: PiEngine;
 	callPurpose?: { background: boolean };
@@ -208,6 +210,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 				...tools.map((tool) => tool.name === "read" && tool.execute === readTool.execute
 					? { ...tool, execute: createReadTool(engine.model).execute as AgentTool<any>["execute"] }
 					: tool),
+				...(opts.attachmentTool ? [opts.attachmentTool] : []),
 				...(sendToUserApplies(kind, engine.model, opts.tools !== undefined)
 					? [withArgumentHeal(sendToUserTool)]
 					: []),
@@ -239,7 +242,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		// UI-only markers (plan-block) drop, the app's id fields strip, and
 		// an abort's dangling question call gets its INTERRUPTED result. It
 		// must never throw (pi's convertToLlm contract).
-		convertToLlm: toLlmMessages,
+		convertToLlm: opts.convertAttachments ?? toLlmMessages,
 		prepareRequest: (request) => {
 			if (opts.callPurpose) {
 				let learner = false, automatic = false;
