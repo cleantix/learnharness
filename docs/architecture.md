@@ -157,7 +157,7 @@ API environment values override saved keys. Packaged subscription refresh creden
 
 ### File access and external services
 
-Read-only file tools default to the server user's home, not a selected project or app data root. Walk exclusions reduce noise; they are not access authority. Session attachments carry local paths rather than uploads.
+Read-only file tools default to the server user's home, not a selected project or app data root. Walk exclusions reduce noise; they are not access authority. Session uploads are copied into the app data directory and referenced by chat-owned identifiers; the attachment reader scopes access to the current chat. Desktop folder references and previously stored local paths continue to use the file-access policy.
 
 The **sensitive-path guard** refuses known private home locations, `.env` files, configured auth/subscription files, and recognized credential temporary files. It checks named/canonical paths and aliases; walks skip protected locations. It is path-based defense in depth, not a content scanner, sandbox, or allowed-folders setting. Other sensitive files and learning records can remain readable. See [`fs-shared.ts`](../src/agent/tools/fs-shared.ts).
 

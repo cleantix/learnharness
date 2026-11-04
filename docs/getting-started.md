@@ -35,15 +35,17 @@ Audio streams from your browser directly to Deepgram using a short-lived token. 
 
 ## Use local files in a session
 
-In the desktop app, use the paperclip's **Files** or **Folder** choice, or drag files/folders into the content area, to insert their local paths. Files supports any file type and multiple selections; Folder attaches one directory path, including an empty folder, without expanding or reading its contents. Newly picked or dropped known folders get a trailing directory separator so their Folder icon survives saved messages and reloads; files stay unchanged. Older unmarked paths are not retrospectively classified. The agent can then locate/read supported content on the machine running LearnHarness under the existing file-access guards; attaching a path does not grant permissions. This is **not an upload**: originals stay where they are. Ordinary browsers cannot expose these local paths through the picker or drag-and-drop; you can paste a full path instead.
+In the desktop app or browser, use the paperclip or drag files into the chat to attach them. Paste a screenshot directly into the message field. Supported formats are PNG, JPEG, GIF, WebP, BMP, PDF, UTF-8 text/code and Jupyter `nbformat 4` notebooks. A message can contain up to 10 files, at most 25 MiB each and 100 MiB in total. Images are limited to 16 megapixels and 8192 pixels per side.
 
-The teacher can show a local raster image or request an annotated visual based on it. Displayed/annotated pictures are saved as session-owned snapshots, so those saved results no longer depend on the original file. This does not snapshot every file attachment. Offline regression tests cover snapshot/payload behavior, not the quality of model-generated annotations.
+Files are copied into the app's data directory. The original stays in place, and a saved attachment remains available to the agent in that chat even if the original is moved or deleted. Images go to the selected vision-capable model with the message; the agent reads documents and notebooks as needed. Notebook code is never executed: Markdown, code, saved text, errors, and supported image outputs can be read; interactive widgets are not processed. Large files are read in portions. Opening a saved image shows a larger preview, and the original can be downloaded from its card. Deleting a chat removes its copies; unfinished uploads are cleaned after 24 hours.
+
+In the desktop app, the paperclip's **Folder** choice still inserts a local directory path rather than copying a directory. Typed and previously saved local paths continue to work under the existing file-access settings. Attachments are available in the first message and main chat composer; question and practice-answer fields do not yet accept file uploads.
 
 File tools are read-only but have broad filesystem access under the server's user; they are not confined to a selected folder. The sensitive-path guard blocks known credential/private locations, not all sensitive content. Review what you make available: file content read by an agent may be sent to its configured model provider. See [file-access boundaries](architecture.md#file-access-and-external-services).
 
 ## Extract into the graph
 
-For lessons, attach material to a session instead. Use the graph's **Extract files… → Files** or **Folder** picker for Markdown, plain text, or PDFs. This is a separate import flow, not the session's path attachments. Each supported file is uploaded for processing; folders organize imported sources.
+For lessons, attach material to a session instead. Use the graph's **Extract files… → Files** or **Folder** picker for Markdown, plain text, or PDFs. This is a separate import flow from session attachments. Each supported file is uploaded for processing; folders organize imported sources.
 
 - Files are limited to **25 MiB each**. Imports queue independently, with up to three files in flight.
 - PDF conversion is local text extraction, not OCR. Image-only pages are skipped and counted; scanner text can be inaccurate. Check the import's notices.

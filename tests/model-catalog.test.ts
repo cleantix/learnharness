@@ -1,4 +1,6 @@
 import * as fs from "node:fs";
+import mutableFs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
@@ -351,10 +353,21 @@ function withClaudeInstalled(installed: boolean, fn: () => void, enabled = true)
 	process.env.PATH = dir;
 	process.env.HOME = dir;
 	delete process.env.npm_config_prefix;
+	// The production discovery intentionally probes common absolute install
+	// paths after PATH. A developer's real installation must not leak into
+	// this fixture's simulated empty machine.
+	const originalAccess = mutableFs.accessSync;
+	mutableFs.accessSync = ((file: fs.PathLike, mode?: number) => {
+		if (file === "/opt/homebrew/bin/claude" || file === "/usr/local/bin/claude") throw Object.assign(new Error("fixture: absent"), { code: "ENOENT" });
+		return originalAccess(file, mode);
+	}) as typeof mutableFs.accessSync;
+	syncBuiltinESMExports();
 
 	try {
 		fn();
 	} finally {
+		mutableFs.accessSync = originalAccess;
+		syncBuiltinESMExports();
 		for (const [name, value] of Object.entries(saved)) {
 			if (value === undefined) delete process.env[name];
 			else process.env[name] = value;

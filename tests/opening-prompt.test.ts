@@ -78,6 +78,15 @@ describe("new-session create and handover", () => {
 		}) as typeof fetch;
 		return { bodies, fetchLike };
 	}
+	it("hands over attachment-only openings and retains their IDs across an attempted send", async () => {
+		const starter = new SessionStarter();
+		const { fetchLike } = createFetch();
+		const ids = ["11111111-1111-4111-8111-111111111111"];
+		assert.equal(await starter.start({ title: "", attachmentIds: ids }, fetchLike), "/chat/chat_1");
+		assert.deepEqual(readOpeningPromptEntry("chat_1"), { text: "", attempted: false, attachmentIds: ids });
+		assert.equal(stashOpeningPrompt("chat_1", "", true, ids), true);
+		assert.deepEqual(readOpeningPromptEntry("chat_1"), { text: "", attempted: true, attachmentIds: ids });
+	});
 	it("refuses navigation on quota failure, then reuses the created session for unchanged retry", async () => {
 		const starter = new SessionStarter();
 		const { bodies, fetchLike } = createFetch();
