@@ -183,12 +183,12 @@ linux:
 publish:
   # Update feed = GitHub Releases (decided 2026-10-08): latest-mac.yml +
   # zip/blockmap live on releases; electron-updater reads them anonymously.
-  # REQUIRES THE REPO TO BE PUBLIC before 0.3.0 ships — anonymous downloads
+  # REQUIRES THE REPO TO BE PUBLIC before a release ships — anonymous downloads
   # from a private repo are impossible, and a token baked into the app
   # would be a leak. desktop:dist passes no --publish flag, so builds never
   # upload; publishing happens at release time (GH_TOKEN + --publish).
   - provider: github
-    owner: amosblomqvist
+    owner: cleantix
     repo: learnharness
     # All three CI jobs contribute assets; only the owner publishes it.
     releaseType: draft

@@ -105,6 +105,8 @@ Shell, native-module, packaging/updater, or Electron changes warrant focused pla
 
 Packaged apps check at startup and every 24 hours by default, download automatically, and install on quit or Restart. **Settings → General** provides release notes, manual checks, status, and Automatic updates. Disabling automatic checks does not cancel downloads/staged installs; manual checks still download updates. Dev builds disable the updater. Errors go to `userData/logs/main.log`; `LH_UPDATE_FEED` is a test-only generic-feed override.
 
+This fork's packaged builds use GitHub Releases from `cleantix/learnharness` for updates and release-note links. Before publishing a build, verify that its release feed and referenced assets are publicly accessible and exercise the update path from an installed copy. The author repository remains available as the `upstream` remote for source updates.
+
 Sources: [`electron/main.cjs`](../electron/main.cjs), [`preload.cjs`](../electron/preload.cjs), [`update-settings.tsx`](../components/settings/update-settings.tsx).
 
-After stable publication, [`notify-website.yml`](../.github/workflows/notify-website.yml) dispatches the tag to the website using `WEBSITE_DISPATCH_TOKEN`. Drafts/prereleases do not trigger it. HTTP 204 means the website update was queued, not deployed or publicly verified.
+In the upstream repository, after stable publication, [`notify-website.yml`](../.github/workflows/notify-website.yml) dispatches the tag to the upstream website using `WEBSITE_DISPATCH_TOKEN`. Its repository guard prevents it from running for this fork. Drafts/prereleases do not trigger it. HTTP 204 means the website update was queued, not deployed or publicly verified.
